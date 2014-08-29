@@ -1,0 +1,80 @@
+!obj:pylearn2.train.Train {
+    dataset: &train !obj:model.msr_dataset.MSRDataset {
+              # point to the folder containing all *_X.npy and *_Y.npy pairs
+              path_to_data: '/home/ognawala/data/PatientMS-R/',
+              which_set: 'train',
+    },
+    # Here we specify the model to train as being an MLP
+    model: !obj:pylearn2.models.mlp.MLP {
+        layers : [
+            # copy the next 13 lines as many times as the
+            # number of convolution layers needed
+            !obj:pylearn2.models.mlp.ConvRectifiedLinear {
+                layer_name: 'h0', # unique for every layer
+                # define here the shape of sliding window (kernel) in the convolution layer
+                kernel_shape: [2, 2],
+                # define here the shape of sub-pooling kernel. 
+                # make sure pool_shape and pool_stride are the same
+                pool_shape: [2, 2],
+                pool_stride: [2, 2],
+                # define here the number of convolutional filters in this layer
+                output_channels: 20,
+                irange: .05,
+                max_kernel_norm: .9
+            },
+            # MLP layer - fully connected
+            !obj:pylearn2.models.mlp.Sigmoid {
+                layer_name: 'm0',
+                dim: 200, # number of MLP nodes
+                irange: .05,
+            },
+            # Final sigmoid layer to do the classification
+            !obj:pylearn2.models.mlp.Softmax {
+                layer_name: 'y',
+                irange: .05,
+                n_classes: 2
+            }
+        ],
+        # The inputs are 55x55 pixel images
+        input_space: !obj:pylearn2.space.Conv2DSpace {
+            shape: [55, 55],
+            # define here the number of image channels
+            num_channels: 10
+        }
+    },
+    # We train using SGD and momentum
+    algorithm: !obj:pylearn2.training_algorithms.sgd.SGD {
+        batch_size: 200,
+        # change the learning rate if valid_y error doesn't minimize
+        learning_rate: .001,
+        init_momentum: .5, # if model doesn't converge, try removing the momentum
+        # We monitor how well we're doing during training on a validation set
+        monitoring_dataset:
+              {
+                   'train' : *train,
+                   'valid' : !obj:model.msr_dataset.MSRDataset {
+                   # point to the folder containing all *_X.npy and *_Y.npy pairs
+                   path_to_data: '/home/ognawala/data/PatientMS-R/',
+                   which_set: 'test',
+                   }
+              },
+        # We stop when validation set classification error hasn't decreased for 10 epochs
+        termination_criterion: !obj:pylearn2.termination_criteria.MonitorBased {
+            channel_name: "valid_y_misclass",
+            prop_decrease: 0.,
+            N: 10
+        },
+        update_callbacks: !obj:pylearn2.training_algorithms.sgd.ExponentialDecay {
+            decay_factor: 1.001,
+            min_lr: .0001
+        }
+    },
+    # We save the model whenever we improve on the validation set classification error
+    extensions: [
+        !obj:pylearn2.train_extensions.best_params.MonitorBasedSaveBest {
+             channel_name: 'valid_y_misclass',
+             # save the learned model to this file every time we find a new best weight matrix
+             save_path: "model/bestmodels/CNN-1.pkl"
+        },
+    ],
+}
